@@ -1,0 +1,156 @@
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { supabase, isSupabaseConfigured } from '../lib/supabase';
+
+const AuthContext = createContext({
+  user: null,
+  profile: null,
+  loading: true,
+  role: 'student',
+  signIn: async () => {},
+  signUp: async () => {},
+  signOut: async () => {},
+  refreshProfile: async () => {},
+});
+
+export const AuthProvider = ({ children }) => {
+  const [user, setUser] = useState(null);
+  const [profile, setProfile] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  const fetchProfile = async (userId, userEmail = '') => {
+    if (!userId || !isSupabaseConfigured) {
+      setProfile(null);
+      return;
+    }
+    try {
+      const { data, error } = await supabase
+        .from('profiles')
+        .select('*')
+        .eq('id', userId)
+        .single();
+
+      if (error) {
+        console.warn('Profile fetch warning:', error.message);
+        setProfile({ id: userId, role: 'student', email: userEmail });
+      } else {
+        setProfile(data);
+      }
+    } catch (err) {
+      console.error('Error fetching profile:', err);
+      setProfile({ id: userId, role: 'student', email: userEmail });
+    }
+  };
+
+  useEffect(() => {
+    let isMounted = true;
+
+    // Safety fallback timer to guarantee loading ends within 1.5 seconds
+    const timer = setTimeout(() => {
+      if (isMounted) setLoading(false);
+    }, 1500);
+
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      return () => clearTimeout(timer);
+    }
+
+    const initAuth = async () => {
+      try {
+        const { data: { session } } = await supabase.auth.getSession();
+        if (isMounted) {
+          setUser(session?.user ?? null);
+          if (session?.user) {
+            await fetchProfile(session.user.id, session.user.email);
+          }
+        }
+      } catch (err) {
+        console.error('Auth initialization error:', err);
+      } finally {
+        if (isMounted) setLoading(false);
+      }
+    };
+
+    initAuth();
+
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
+      if (isMounted) {
+        setUser(session?.user ?? null);
+        if (session?.user) {
+          await fetchProfile(session.user.id, session.user.email);
+        } else {
+          setProfile(null);
+        }
+        setLoading(false);
+      }
+    });
+
+    return () => {
+      isMounted = false;
+      clearTimeout(timer);
+      subscription?.unsubscribe();
+    };
+  }, []);
+
+  const signIn = async (email, password) => {
+    if (!isSupabaseConfigured) {
+      throw new Error('Chưa cấu hình Supabase URL & Anon Key trong file .env');
+    }
+    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    if (error) throw error;
+    return data;
+  };
+
+  const signUp = async (email, password, fullName, role = 'student') => {
+    if (!isSupabaseConfigured) {
+      throw new Error('Chưa cấu hình Supabase URL & Anon Key trong file .env');
+    }
+    const { data, error } = await supabase.auth.signUp({
+      email,
+      password,
+      options: {
+        data: {
+          full_name: fullName,
+          role: role,
+        },
+      },
+    });
+    if (error) throw error;
+    return data;
+  };
+
+  const signOut = async () => {
+    if (isSupabaseConfigured) {
+      await supabase.auth.signOut();
+    }
+    setUser(null);
+    setProfile(null);
+  };
+
+  const refreshProfile = async () => {
+    if (user?.id) {
+      await fetchProfile(user.id);
+    }
+  };
+
+  const role = profile?.role || 'student';
+
+  return (
+    <AuthContext.Provider
+      value={{
+        user,
+        profile,
+        loading,
+        role,
+        signIn,
+        signUp,
+        signOut,
+        refreshProfile,
+        isConfigured: isSupabaseConfigured,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+};
+
+export const useAuth = () => useContext(AuthContext);
