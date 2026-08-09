@@ -1,31 +1,17 @@
-
-const apiKey = import.meta.env.VITE_GEMINI_API_KEY || '';
-
-const ai = apiKey ? new GoogleGenAI({ apiKey }) : null;
+function getApiKey() {
+  return import.meta.env.VITE_GEMINI_API_KEY || localStorage.getItem('VITE_GEMINI_API_KEY') || '';
+}
 
 /**
- * Call Gemini REST directly as fallback or using SDK
+ * Call Gemini REST API directly using standard fetch
  */
 async function callGemini(prompt, systemInstruction = '') {
+  const apiKey = getApiKey();
   if (!apiKey) {
-    throw new Error('VITE_GEMINI_API_KEY chưa được cấu hình trong file .env');
+    throw new Error('Vui lòng nhấp nút "Cấu Hình AI Key" trên thanh công cụ góc trên để nhập Gemini API Key.');
   }
 
-  try {
-    if (ai) {
-      const response = await ai.models.generateContent({
-        model: 'gemini-2.5-flash',
-        contents: prompt,
-        config: systemInstruction ? { systemInstruction } : undefined
-      });
-      return response.text;
-    }
-  } catch (err) {
-    console.warn('GenAI SDK call failed, falling back to REST API...', err);
-  }
-
-  // Fallback REST call
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
   const response = await fetch(url, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
